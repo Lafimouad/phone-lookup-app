@@ -5,12 +5,14 @@ export default function PhoneLookupForm() {
   const [phone, setPhone] = useState('')
   const [status, setStatus] = useState(null)
   const [code, setCode] = useState('')
+  const [token, setToken] = useState('')
 
   async function sendVerify() {
     setStatus('Sending...')
     try {
       const res = await axios.post('http://localhost:4000/api/send-verify', { phone })
       setStatus(res.data.message || 'Sent')
+      if (res.data.token) setToken(res.data.token)
       if (res.data.devCode) setStatus(`Dev code: ${res.data.devCode}`)
     } catch (err) {
       setStatus(err.response?.data?.error || err.message)
@@ -20,7 +22,8 @@ export default function PhoneLookupForm() {
   async function checkVerify() {
     setStatus('Checking...')
     try {
-      const res = await axios.post('http://localhost:4000/api/check-verify', { phone, code })
+      if (!token) return setStatus('Verification token missing; request a new code')
+      const res = await axios.post('http://localhost:4000/api/check-verify', { phone, code, token })
       setStatus(res.data.message)
     } catch (err) {
       setStatus(err.response?.data?.error || err.message)

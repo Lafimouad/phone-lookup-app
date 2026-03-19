@@ -12,11 +12,32 @@ Resources:
     Properties:
       StageName: prod
 
+  VerificationTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: PhoneVerifications
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: phone
+          AttributeType: S
+      KeySchema:
+        - AttributeName: phone
+          KeyType: HASH
+      TimeToLiveSpecification:
+        AttributeName: expires
+        Enabled: true
+
   SendVerifyFunction:
     Type: AWS::Serverless::Function
     Properties:
       Handler: handler.sendVerify
       CodeUri: ./
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref VerificationTable
+      Environment:
+        Variables:
+          VERIFICATION_TABLE: !Ref VerificationTable
       Events:
         SendVerifyApi:
           Type: Api
@@ -30,6 +51,12 @@ Resources:
     Properties:
       Handler: handler.checkVerify
       CodeUri: ./
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref VerificationTable
+      Environment:
+        Variables:
+          VERIFICATION_TABLE: !Ref VerificationTable
       Events:
         CheckVerifyApi:
           Type: Api
@@ -43,6 +70,12 @@ Resources:
     Properties:
       Handler: handler.lookup
       CodeUri: ./
+      Policies:
+        - DynamoDBReadPolicy:
+            TableName: !Ref VerificationTable
+      Environment:
+        Variables:
+          VERIFICATION_TABLE: !Ref VerificationTable
       Events:
         LookupApi:
           Type: Api

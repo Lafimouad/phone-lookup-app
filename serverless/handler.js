@@ -12,8 +12,7 @@ if (TWILIO_ACCOUNT_SID && TWILIO_AUTH_TOKEN) {
   }
 }
 
-// Note: Lambda's execution environment may be reused, but do not rely on in-memory storage for production.
-const verifications = new Map();
+// Stateless verification using HMAC-signed tokens (no database)
 const CODE_TTL_MS = 5 * 60 * 1000; // 5 minutes
 
 function generateCode() {
@@ -32,6 +31,43 @@ function jsonResponse(statusCode, body) {
   };
 }
 
+function base64urlEncode(buf) {
+  return Buffer.from(buf).toString('base64url');
+}
+
+function base64urlDecode(str) {
+  return Buffer.from(str, 'base64url').toString();
+}
+
+function signPayload(payloadObj, secret) {
+  const payload = base64urlEncode(JSON.stringify(payloadObj));
+  const crypto = require('crypto');
+  const h = crypto.createHmac('sha256', secret || '');
+  h.update(payload);
+  const sig = h.digest('base64url');
+  return `${payload}.${sig}`;
+}
+
+function verifyToken(token, secret) {
+  try {
+    const crypto = require('crypto');
+    const parts = token.split('.');
+    if (parts.length !== 2) return null;
+    const [payloadB64, sig] = parts;
+    const h = crypto.createHmac('sha256', secret || '');
+    h.update(payloadB64);
+    const expected = h.digest('base64url');
+    const sigBuf = Buffer.from(sig);
+    const expBuf = Buffer.from(expected);
+    if (sigBuf.length !== expBuf.length) return null;
+    if (!crypto.timingSafeEqual(sigBuf, expBuf)) return null;
+    const payloadJson = base64urlDecode(payloadB64);
+    return JSON.parse(payloadJson);
+  } catch (err) {
+    return null;
+  }
+}
+
 exports.sendVerify = async (event) => {
   let body;
   try {
@@ -42,26 +78,30 @@ exports.sendVerify = async (event) => {
 
   const phone = body.phone;
   if (!phone) return jsonResponse(400, { error: 'phone is required' });
-
   const code = generateCode();
-  const expires = Date.now() + CODE_TTL_MS;
-  verifications.set(phone, { code, expires });
+  const expiresAt = Date.now() + CODE_TTL_MS;
+
+  // Create a signed token containing phone, code and expires
+  const secret = process.env.VERIFY_SECRET || '';
+  const payload = { phone, code, expiresAt };
+  const token = signPayload(payload, secret);
 
   const text = `Your verification code is ${code}`;
 
   if (twilioClient && TWILIO_PHONE_NUMBER) {
     try {
       await twilioClient.messages.create({ body: text, from: TWILIO_PHONE_NUMBER, to: phone });
-      return jsonResponse(200, { ok: true, message: 'Code sent' });
+      // Return token to client (client stores it temporarily to present at verification)
+      return jsonResponse(200, { ok: true, message: 'Code sent', token });
     } catch (err) {
       console.error('Twilio send error', err.message);
       return jsonResponse(500, { error: 'Failed to send SMS' });
     }
   }
 
-  // Dev fallback: return code in response (only for dev/testing)
+  // Dev fallback: return code and token in response (only for dev/testing)
   console.log(`[DEV] Verification code for ${phone}: ${code}`);
-  return jsonResponse(200, { ok: true, message: 'DEV: code generated', devCode: code });
+  return jsonResponse(200, { ok: true, message: 'DEV: code generated', devCode: code, token });
 };
 
 exports.checkVerify = async (event) => {
@@ -74,16 +114,17 @@ exports.checkVerify = async (event) => {
 
   const { phone, code } = body;
   if (!phone || !code) return jsonResponse(400, { error: 'phone and code required' });
+  // Expect client to provide the signed token so we can validate statelessly
+  const token = body.token;
+  if (!token) return jsonResponse(400, { ok: false, error: 'token required' });
 
-  const entry = verifications.get(phone);
-  if (!entry) return jsonResponse(400, { ok: false, error: 'No code sent to this number' });
-  if (Date.now() > entry.expires) {
-    verifications.delete(phone);
-    return jsonResponse(400, { ok: false, error: 'Code expired' });
-  }
-  if (entry.code !== String(code)) return jsonResponse(400, { ok: false, error: 'Invalid code' });
+  const secret = process.env.VERIFY_SECRET || '';
+  const payload = verifyToken(token, secret);
+  if (!payload) return jsonResponse(400, { ok: false, error: 'Invalid or tampered token' });
+  if (payload.phone !== phone) return jsonResponse(400, { ok: false, error: 'Phone mismatch' });
+  if (Date.now() > payload.expiresAt) return jsonResponse(400, { ok: false, error: 'Code expired' });
+  if (String(payload.code) !== String(code)) return jsonResponse(400, { ok: false, error: 'Invalid code' });
 
-  verifications.delete(phone);
   return jsonResponse(200, { ok: true, message: 'Phone verified' });
 };
 
