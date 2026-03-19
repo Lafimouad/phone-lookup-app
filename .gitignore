@@ -6,3 +6,26 @@ build/
 .vscode/
 npm-debug.log
 *.log
+
+# Local envs
+.env.local
+.env.*.local
+
+# CDK synth output
+/serverless/cdk/cdk.out/
+/serverless/cdk/cdk.out/**
+
+# Vite / client
+/client/.vite/
+
+# Terraform / state
+*.tfstate
+*.tfstate.backup
+
+# AWS credentials and arbitrary credential files
+.aws/
+aws cred/
+aws cred/*
+
+# Zip artifacts
+**/*.zip

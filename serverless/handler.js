@@ -68,6 +68,43 @@ function verifyToken(token, secret) {
   }
 }
 
+// Retrieve VERIFY_SECRET: prefer `VERIFY_SECRET` env var (existing),
+// otherwise fetch from Secrets Manager using `VERIFY_SECRET_ARN`.
+let cachedSecret = null;
+let loadingSecretPromise = null;
+async function getVerifySecret() {
+  if (cachedSecret) return cachedSecret;
+  if (process.env.VERIFY_SECRET) {
+    cachedSecret = process.env.VERIFY_SECRET;
+    return cachedSecret;
+  }
+  const arn = process.env.VERIFY_SECRET_ARN;
+  if (!arn) return '';
+  if (loadingSecretPromise) return loadingSecretPromise;
+  try {
+    const AWS = require('aws-sdk');
+    const sm = new AWS.SecretsManager();
+    loadingSecretPromise = sm.getSecretValue({ SecretId: arn }).promise()
+      .then(res => {
+        const s = res.SecretString || '';
+        cachedSecret = s;
+        loadingSecretPromise = null;
+        return cachedSecret;
+      })
+      .catch(err => {
+        console.error('Failed to load secret from Secrets Manager', err && err.message);
+        loadingSecretPromise = null;
+        return '';
+      });
+    return loadingSecretPromise;
+  } catch (err) {
+    // If the runtime doesn't provide 'aws-sdk' and bundling excluded it, avoid crashing.
+    console.warn('aws-sdk not available in Lambda runtime; skipping secret fetch');
+    return '';
+  }
+  return loadingSecretPromise;
+}
+
 exports.sendVerify = async (event) => {
   let body;
   try {
@@ -82,7 +119,7 @@ exports.sendVerify = async (event) => {
   const expiresAt = Date.now() + CODE_TTL_MS;
 
   // Create a signed token containing phone, code and expires
-  const secret = process.env.VERIFY_SECRET || '';
+  const secret = await getVerifySecret();
   const payload = { phone, code, expiresAt };
   const token = signPayload(payload, secret);
 
@@ -118,7 +155,7 @@ exports.checkVerify = async (event) => {
   const token = body.token;
   if (!token) return jsonResponse(400, { ok: false, error: 'token required' });
 
-  const secret = process.env.VERIFY_SECRET || '';
+  const secret = await getVerifySecret();
   const payload = verifyToken(token, secret);
   if (!payload) return jsonResponse(400, { ok: false, error: 'Invalid or tampered token' });
   if (payload.phone !== phone) return jsonResponse(400, { ok: false, error: 'Phone mismatch' });

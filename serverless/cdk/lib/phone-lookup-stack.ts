@@ -3,8 +3,8 @@ import { Construct } from 'constructs';
 import { NodejsFunction } from 'aws-cdk-lib/aws-lambda-nodejs';
 import * as lambda from 'aws-cdk-lib/aws-lambda';
 import * as path from 'path';
-import { HttpApi, HttpMethod } from 'aws-cdk-lib/aws-apigatewayv2';
-import { LambdaProxyIntegration } from '@aws-cdk/aws-apigatewayv2-integrations-alpha';
+import * as apigw from 'aws-cdk-lib/aws-apigateway';
+import { LambdaIntegration } from 'aws-cdk-lib/aws-apigateway';
 
 export interface PhoneLookupStackProps extends cdk.StackProps {}
 
@@ -19,44 +19,62 @@ export class PhoneLookupStack extends cdk.Stack {
       TWILIO_PHONE_NUMBER: process.env.TWILIO_PHONE_NUMBER || ''
     };
 
-    const handlerPath = path.join(__dirname, '../../handler.js');
-    // Using the serverless folder as the function code root
-    const baseDir = path.join(__dirname, '..', '..');
+    // Handler file is located at project_root/serverless/handler.js
+    const handlerEntry = path.join(__dirname, '..', '..', 'handler.js');
 
     const sendVerifyFn = new NodejsFunction(this, 'SendVerifyFn', {
-      entry: path.join(baseDir, 'serverless', 'handler.js'),
+      entry: handlerEntry,
       handler: 'sendVerify',
       runtime: lambda.Runtime.NODEJS_18_X,
       environment: lambdaEnv,
+      bundling: {
+        externalModules: ['aws-sdk']
+      }
     });
 
     const checkVerifyFn = new NodejsFunction(this, 'CheckVerifyFn', {
-      entry: path.join(baseDir, 'serverless', 'handler.js'),
+      entry: handlerEntry,
       handler: 'checkVerify',
       runtime: lambda.Runtime.NODEJS_18_X,
       environment: lambdaEnv,
+      bundling: {
+        externalModules: ['aws-sdk']
+      }
     });
 
     const lookupFn = new NodejsFunction(this, 'LookupFn', {
-      entry: path.join(baseDir, 'serverless', 'handler.js'),
+      entry: handlerEntry,
       handler: 'lookup',
       runtime: lambda.Runtime.NODEJS_18_X,
       environment: lambdaEnv,
+      bundling: {
+        externalModules: ['aws-sdk']
+      }
     });
 
-    // HTTP API
-    const api = new HttpApi(this, 'PhoneLookupApi', {
-      apiName: 'phone-lookup-api',
+    // REST API (stable) using API Gateway
+    const api = new apigw.RestApi(this, 'PhoneLookupApi', {
+      restApiName: 'phone-lookup-api',
+      deployOptions: { stageName: 'prod' },
+      defaultCorsPreflightOptions: {
+        allowOrigins: apigw.Cors.ALL_ORIGINS,
+        allowMethods: apigw.Cors.ALL_METHODS, // OPTIONS, GET, POST, etc.
+      }
     });
 
-    const sendIntegration = new LambdaProxyIntegration({ handler: sendVerifyFn });
-    const checkIntegration = new LambdaProxyIntegration({ handler: checkVerifyFn });
-    const lookupIntegration = new LambdaProxyIntegration({ handler: lookupFn });
+    const sendIntegration = new LambdaIntegration(sendVerifyFn);
+    const checkIntegration = new LambdaIntegration(checkVerifyFn);
+    const lookupIntegration = new LambdaIntegration(lookupFn);
 
-    api.addRoutes({ path: '/send-verify', methods: [HttpMethod.POST], integration: sendIntegration });
-    api.addRoutes({ path: '/check-verify', methods: [HttpMethod.POST], integration: checkIntegration });
-    api.addRoutes({ path: '/lookup', methods: [HttpMethod.GET], integration: lookupIntegration });
+    const send = api.root.addResource('send-verify');
+    send.addMethod('POST', sendIntegration);
 
-    new cdk.CfnOutput(this, 'HttpApiUrl', { value: api.apiEndpoint });
+    const check = api.root.addResource('check-verify');
+    check.addMethod('POST', checkIntegration);
+
+    const lookup = api.root.addResource('lookup');
+    lookup.addMethod('GET', lookupIntegration);
+
+    new cdk.CfnOutput(this, 'RestApiUrl', { value: api.url });
   }
 }
