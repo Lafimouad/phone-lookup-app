@@ -1,0 +1,57 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: Phone Lookup demo - Lambda + API Gateway (dev)
+Globals:
+  Function:
+    Runtime: nodejs18.x
+    Timeout: 10
+
+Resources:
+  PhoneApi:
+    Type: AWS::Serverless::Api
+    Properties:
+      StageName: prod
+
+  SendVerifyFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: handler.sendVerify
+      CodeUri: ./
+      Events:
+        SendVerifyApi:
+          Type: Api
+          Properties:
+            Path: /send-verify
+            Method: post
+            RestApiId: !Ref PhoneApi
+
+  CheckVerifyFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: handler.checkVerify
+      CodeUri: ./
+      Events:
+        CheckVerifyApi:
+          Type: Api
+          Properties:
+            Path: /check-verify
+            Method: post
+            RestApiId: !Ref PhoneApi
+
+  LookupFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: handler.lookup
+      CodeUri: ./
+      Events:
+        LookupApi:
+          Type: Api
+          Properties:
+            Path: /lookup
+            Method: get
+            RestApiId: !Ref PhoneApi
+
+Outputs:
+  ApiUrl:
+    Description: "API Gateway endpoint"
+    Value: !Sub "https://${PhoneApi}.execute-api.${AWS::Region}.amazonaws.com/prod"

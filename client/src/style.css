@@ -1,0 +1,9 @@
+body { font-family: system-ui, Arial, sans-serif; padding: 2rem; background: #f7f8fb; }
+.container { max-width: 720px; margin: 0 auto; }
+.card { background: white; padding: 1rem 1.2rem; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.06); margin-bottom: 1rem; }
+input { width: 100%; padding: 0.6rem; margin: 0.4rem 0 0.8rem 0; border: 1px solid #ddd; border-radius: 6px }
+button { padding: 0.5rem 0.9rem; border: none; background: #0366d6; color: white; border-radius: 6px; cursor: pointer }
+.row { display:flex; gap:0.6rem }
+.status { margin-top: 0.8rem; color: #333 }
+.results { background:#fafafa; padding:0.6rem; border-radius:6px; overflow:auto }
+h1 { margin-bottom: 1rem }
