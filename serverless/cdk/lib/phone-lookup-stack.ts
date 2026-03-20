@@ -87,6 +87,37 @@ export class PhoneLookupStack extends cdk.Stack {
     verifySecret.grantRead(checkVerifyFn);
     verifySecret.grantRead(lookupFn);
 
+    // Twilio credentials secret (import by ARN or name). Use TWILIO_SECRET_ARN or default name.
+    const twilioSecretArnFromEnv = process.env.TWILIO_SECRET_ARN;
+    const twilioSecretName =
+      process.env.TWILIO_SECRET_NAME || "/phone-lookup/TWILIO";
+    let twilioSecret: secretsmanager.ISecret;
+    if (twilioSecretArnFromEnv) {
+      twilioSecret = secretsmanager.Secret.fromSecretCompleteArn(
+        this,
+        "TwilioSecretImported",
+        twilioSecretArnFromEnv,
+      );
+    } else {
+      // Import by name: references an existing secret by name. If you need CDK to create it,
+      // change this to `new secretsmanager.Secret(...)` instead.
+      twilioSecret = secretsmanager.Secret.fromSecretNameV2(
+        this,
+        "TwilioSecret",
+        twilioSecretName,
+      );
+    }
+
+    // Expose TWILIO_SECRET_ARN to Lambdas so handler can fetch credentials at runtime
+    sendVerifyFn.addEnvironment("TWILIO_SECRET_ARN", twilioSecret.secretArn);
+    checkVerifyFn.addEnvironment("TWILIO_SECRET_ARN", twilioSecret.secretArn);
+    lookupFn.addEnvironment("TWILIO_SECRET_ARN", twilioSecret.secretArn);
+
+    // Grant Lambdas permission to read Twilio secret
+    twilioSecret.grantRead(sendVerifyFn);
+    twilioSecret.grantRead(checkVerifyFn);
+    twilioSecret.grantRead(lookupFn);
+
     // REST API (stable) using API Gateway
     const api = new apigw.RestApi(this, "PhoneLookupApi", {
       restApiName: "phone-lookup-api",
